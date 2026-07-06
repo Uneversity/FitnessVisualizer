@@ -21,6 +21,15 @@ export default function TrackerPage(){
     const countRef = useRef(0);
     const [reps, setReps] = useState(0); 
 
+    const [selectedExercise, setSelectedExercise] = useState("bicepCurl"); // for the UI
+    const selectedExerciseRef = useRef("bicepCurl");    
+
+    const EXERCISES = {
+        squat: {name: "Squat", points: [24, 26, 28], down: 90, up: 160},
+        bicepCurl: {name: "Bicep Curl", points: [12, 14, 16], down: 40, up: 160},
+        tricepExtension: {name: "Tricep Extension", points: [12, 14, 16], down: 90, up: 160}
+    }
+
     async function initializePoseLandmarker() {
         const vision = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/wasm");
         poseLandmarkerRef.current = await PoseLandmarker.createFromOptions(vision, {
@@ -47,17 +56,32 @@ export default function TrackerPage(){
 
         const ctx = canvas.getContext("2d");
 
-        // eslint-disable-next-line react-hooks/purity
+         // eslint-disable-next-line react-hooks/purity
         const results = landmarker.detectForVideo(video, performance.now());
 
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
-
+        
         if (results.landmarks && results.landmarks.length > 0) {
 
             const landmarks = results.landmarks[0];
 
-            for (const point of landmarks) {
+            const exercise = EXERCISES[selectedExerciseRef.current];
+            const [aIndex, bIndex, cIndex] = exercise.points;
+
+            const a = landmarks[aIndex];
+            const b = landmarks[bIndex];
+            const c = landmarks[cIndex];
+
+            const angle = getAngle(a, b, c);
+
+            countRep(angle, exercise.down, exercise.up);
+
+            ctx.fillStyle = "white";
+            ctx.font = "48px sans-serif";
+            ctx.fillText(countRef.current.toString(), 30, 60);
+
+            for (const point of landmarks .filter((_, index) => index > 10)) {
 
                 const px = point.x * canvas.width;
                 const py = point.y * canvas.height;
@@ -72,7 +96,7 @@ export default function TrackerPage(){
                 ctx.fillText(landmarks.indexOf(point).toString(), px + 8, py);
             }
 
-            for (const connection of PoseLandmarker.POSE_CONNECTIONS) {
+            for (const connection of PoseLandmarker.POSE_CONNECTIONS .filter((_, index) => index > 9)) {
 
                 const startLandmark = landmarks[connection.start];
                 const endLandmark = landmarks[connection.end];
@@ -126,21 +150,27 @@ export default function TrackerPage(){
         return degrees;
     }
 
-    function countRep(angle) {
+    function countRep(angle, downThreshold, upThreshold) {
 
-        const DOWN_THRESHOLD = 90;
-        const UP_THRESHOLD = 160;
-
-        if (angle < DOWN_THRESHOLD) {
+        if (angle < downThreshold) {
             stageRef.current = "down";
         }
 
-        if (stageRef.current === "down" && angle > UP_THRESHOLD) {
+        if (stageRef.current === "down" && angle > upThreshold) {
             stageRef.current = "up";
             countRef.current = countRef.current + 1;
 
             setReps(countRef.current);
         }
+    }
+
+    function selectExercise(key) {
+        setSelectedExercise(key);          // UI: re-render so the right button highlights
+        selectedExerciseRef.current = key; // loop: update the value detectLoop reads live
+
+        countRef.current = 0;              // new exercise → reset the rep count
+        setReps(0);                        // reflect that reset on screen
+        stageRef.current = "up";           // reset the state machine to a clean "up" start
     }
 
     async function launchWebcam() {
@@ -159,8 +189,21 @@ export default function TrackerPage(){
         streamRef.current = stream;
     }
 
-    function stopWebcam() {
+    //
+    async function saveWorkout() {
+        await fetch("/api/workouts", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                exercise: selectedExerciseRef.current,
+                reps: countRef.current,
+            }),
+        });
+    }
 
+    async function stopWebcam() {
+
+        await saveWorkout();
         cancelAnimationFrame(rafRef.current);
         
         if (streamRef.current) {
@@ -215,8 +258,37 @@ export default function TrackerPage(){
                 <p>This is the tracker page content.</p>
             </div>
 
-            <button onClick={launchWebcam}>Launch Webcam</button>
-            <button onClick={stopWebcam}>Stop Webcam</button>
+           {/* <div>
+                <span className="font-bold text-3xl text-green-400 mb-4">
+                    <button class="inline-block text-white font-bold py-2 px-4 rounded" onClick={launchWebcam}>Bicep Curl</button>
+                    <button class="inline-block text-white font-bold py-2 px-4 rounded" onClick={launchWebcam}>Tricep Curl</button>
+
+                </span>
+            </div>*/}
+            
+
+            <div className="flex gap-2 mt-4">
+                {Object.keys(EXERCISES).map((key) => (
+                    <button
+                        key={key}
+                        onClick={() => selectExercise(key)}
+                        className={
+                            selectedExercise === key
+                                ? "bg-green-500 text-black px-4 py-2 rounded"
+                                : "bg-gray-700 text-white px-4 py-2 rounded"
+                        }
+                    >
+                        {EXERCISES[key].name}
+                    </button>
+                ))}
+            </div>
+
+            
+            <button className="bg-green-500 text-black px-4 py-2 rounded" onClick={launchWebcam}>Launch Webcam</button>
+            <button className="bg-green-500 text-black px-4 py-2 rounded bg-red-500/30" onClick={stopWebcam}>Stop Webcam</button>
+            {/*<button className="bg-green-500 text-black px-4 py-2 rounded bg-red-500/30" onClick={() => alert("fired")}  >Stop Webcam</button>*/}
+
+            
         {/*
             <button onClick={}>Start Rep Counting</button>
             <button onClick={}>Stop Rep Counting</button>*/}
@@ -226,7 +298,7 @@ export default function TrackerPage(){
             <div className="relative w-full max-w-6xl mt-8">
                 {/* The video element displays webcam feed, and canvas overlays pose landmarks */}
                 <video ref={videoRef} autoPlay playsInline className="w-full"/>
-                <canvas ref={canvasRef} className="absolute top-0 left-0 w-full h-full" />
+                <canvas ref={canvasRef} className="absolute top-0 left-0 w-full h-full pointer-events-none" />
 
                 <div className="absolute top-4 left-4 bg-black bg-opacity-50 text-white px-3 py-1 rounded">
                     Reps: {reps}

@@ -42,3 +42,5 @@ next-env.d.ts
 
 #other local files
 MYREADME.md
+
+/generated/prisma
