@@ -18,5 +18,6 @@ model Workout {
   id        Int      @id @default(autoincrement())
   exercise  String
   reps      Int
+  userId    String
   createdAt DateTime @default(now())
 }

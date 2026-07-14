@@ -34,7 +34,7 @@ export default function TrackerPage(){
         const vision = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/wasm");
         poseLandmarkerRef.current = await PoseLandmarker.createFromOptions(vision, {
             baseOptions: {
-                modelAssetPath: "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task",
+                modelAssetPath: "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task",
                 delegate: "GPU"
             },
             runningMode: "VIDEO",
@@ -77,9 +77,9 @@ export default function TrackerPage(){
 
             countRep(angle, exercise.down, exercise.up);
 
-            ctx.fillStyle = "white";
-            ctx.font = "48px sans-serif";
-            ctx.fillText(countRef.current.toString(), 30, 60);
+            //ctx.fillStyle = "white";
+            //ctx.font = "48px sans-serif";
+            //ctx.fillText(countRef.current.toString(), 30, 60);
 
             for (const point of landmarks .filter((_, index) => index > 10)) {
 
@@ -126,9 +126,9 @@ export default function TrackerPage(){
 
         countRep(angle);
 
-        ctx.fillStyle = "white";
-        ctx.font = "48px sans-serif";
-        ctx.fillText(countRef.current.toString(), 30, 60);
+        //ctx.fillStyle = "white";
+        //ctx.font = "48px sans-serif";
+        //ctx.fillText(countRef.current.toString(), 30, 60);
         }
 
         rafRef.current = requestAnimationFrame(detectLoop);
@@ -150,7 +150,17 @@ export default function TrackerPage(){
         return degrees;
     }
 
+    const repHistoryRef = useRef([]);   // completed reps
+    const minAngleRef = useRef(180);  // running min for the CURRENT rep
+    const maxAngleRef = useRef(0);    // running max for the CURRENT rep
+    const repStartRef = useRef(null);
+
     function countRep(angle, downThreshold, upThreshold) {
+
+        repStartRef.current = performance.now();
+
+        minAngleRef.current = Math.min(minAngleRef.current, angle);
+        maxAngleRef.current = Math.max(maxAngleRef.current, angle);
 
         if (angle < downThreshold) {
             stageRef.current = "down";
@@ -159,12 +169,27 @@ export default function TrackerPage(){
         if (stageRef.current === "down" && angle > upThreshold) {
             stageRef.current = "up";
             countRef.current = countRef.current + 1;
-
             setReps(countRef.current);
+
+            const now = performance.now();
+
+            repHistoryRef.current.push({
+                rep: countRef.current,
+                minAngle: Math.round(minAngleRef.current),
+                maxAngle: Math.round(maxAngleRef.current),
+                repDuration: Math.round(now - repStartRef.current)
+                // what else? see the gaps below
+            });
+
+            // ??? something important is missing here
+            minAngleRef.current = 180;
+            maxAngleRef.current = 0;
+
         }
     }
 
     function selectExercise(key) {
+
         setSelectedExercise(key);          // UI: re-render so the right button highlights
         selectedExerciseRef.current = key; // loop: update the value detectLoop reads live
 
@@ -187,18 +212,28 @@ export default function TrackerPage(){
 
         // Store the stream in a ref so we can stop it later when needed.
         streamRef.current = stream;
+
+        resetSession()
+
     }
 
-    //
     async function saveWorkout() {
-        await fetch("/api/workouts", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                exercise: selectedExerciseRef.current,
-                reps: countRef.current,
-            }),
-        });
+
+        if (countRef.current === 0) {
+            setFeedback("No reps detected, nothing saved.");
+            return;
+        }
+        else {
+            await fetch("/api/workouts", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    exercise: selectedExerciseRef.current,
+                    reps: countRef.current,
+                }),
+            });
+        }
+
     }
 
     async function stopWebcam() {
@@ -216,6 +251,58 @@ export default function TrackerPage(){
             videoRef.current.srcObject = null;
         }
 
+        await handleStop()
+
+    }
+
+    function resetSession() {
+
+        countRef.current = 0;
+        setReps(0);                        // the ref's UI twin, means the screen updates too
+        repHistoryRef.current = [];
+        stageRef.current = "up";
+        minAngleRef.current = 180;
+        maxAngleRef.current = 0;
+
+    }
+
+    const [feedback, setFeedback] = useState("No feedback yet. Start the camera and get to it.");
+    const [isPending, itIsPending] = useState(false);
+    async function getFeedback() {
+
+        itIsPending(true);
+
+        try{
+            console.log("Getting feedback");
+            const res = await fetch("/api/aicoach", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    exercise: selectedExerciseRef.current,
+                    repHistory: repHistoryRef.current
+                }),
+            });
+    
+            console.log("Feedback received");
+            const data = await res.json();
+
+            console.log("data sent");
+            setFeedback(data.notes);
+        }
+        catch(error){
+            console.error("Error fetching feedback:", error);
+            setFeedback("Error fetching feedback. Please try again later.");
+        }
+        finally{
+            itIsPending(false);
+        }
+
+    }
+
+    async function handleStop() {
+        await saveWorkout();
+        await getFeedback();
+        cancelAnimationFrame(rafRef.current);
     }
 
 
@@ -250,63 +337,86 @@ export default function TrackerPage(){
 
 
     return (
-        <main ref={mainRef} className="flex flex-col items-center justify-center min-h-screen bg-black">
-            <div>
-                <h1 className="font-bold text-3xl text-green-400 mb-4">
-                    Tracker Page
-                </h1>
-                <p>This is the tracker page content.</p>
-            </div>
+    <main ref={mainRef} className="min-h-screen bg-zinc-950 px-4 py-10 text-zinc-200">
+        <div className="mx-auto flex w-full max-w-4xl flex-col gap-8">
 
-           {/* <div>
-                <span className="font-bold text-3xl text-green-400 mb-4">
-                    <button class="inline-block text-white font-bold py-2 px-4 rounded" onClick={launchWebcam}>Bicep Curl</button>
-                    <button class="inline-block text-white font-bold py-2 px-4 rounded" onClick={launchWebcam}>Tricep Curl</button>
+            {/* Header */}
+                <header className="border-b border-zinc-800 pb-6">
+                    <h1 className="text-3xl font-bold tracking-tight text-green-400">Tracker</h1>
+                    <p className="mt-1 text-sm text-zinc-400">
+                        Pick an exercise, start the camera, and reps are counted automatically.
+                    </p>
+                </header>
 
-                </span>
-            </div>*/}
-            
+            {/* Exercise picker — segmented control */}
+                <section>
+                    <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                        Exercise
+                    </h2>
+                    <div className="inline-flex flex-wrap gap-1 rounded-lg border border-zinc-800 bg-zinc-900 p-1">
+                        {Object.keys(EXERCISES).map((key) => (
+                            <button
+                                key={key}
+                                onClick={() => selectExercise(key)}
+                                className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${
+                                    selectedExercise === key
+                                        ? "bg-green-400 text-zinc-950"
+                                        : "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
+                                }`}
+                            >
+                                {EXERCISES[key].name}
+                            </button>
+                        ))}
+                    </div>
+                </section>
 
-            <div className="flex gap-2 mt-4">
-                {Object.keys(EXERCISES).map((key) => (
+            {/* Camera controls */}
+                <section className="flex flex-wrap gap-3">
                     <button
-                        key={key}
-                        onClick={() => selectExercise(key)}
-                        className={
-                            selectedExercise === key
-                                ? "bg-green-500 text-black px-4 py-2 rounded"
-                                : "bg-gray-700 text-white px-4 py-2 rounded"
-                        }
+                        onClick={launchWebcam}
+                        className="rounded-md bg-green-400 px-5 py-2.5 text-sm font-semibold text-zinc-950 transition-colors hover:bg-green-300"
                     >
-                        {EXERCISES[key].name}
+                        Start camera
                     </button>
-                ))}
-            </div>
+                    <button
+                        onClick={stopWebcam}
+                        className="rounded-md border border-red-500/40 bg-red-500/10 px-5 py-2.5 text-sm font-semibold text-red-300 transition-colors hover:bg-red-500/20"
+                    >
+                        Stop and save
+                    </button>
+                </section>
 
-            
-            <button className="bg-green-500 text-black px-4 py-2 rounded" onClick={launchWebcam}>Launch Webcam</button>
-            <button className="bg-green-500 text-black px-4 py-2 rounded bg-red-500/30" onClick={stopWebcam}>Stop Webcam</button>
-            {/*<button className="bg-green-500 text-black px-4 py-2 rounded bg-red-500/30" onClick={() => alert("fired")}  >Stop Webcam</button>*/}
+            {/* Video + canvas overlay */}
+                <section className="relative min-h-[360px] overflow-hidden rounded-xl border border-zinc-800 bg-black">
+                    <video ref={videoRef} autoPlay playsInline muted className="block w-full" />
+                    <canvas
+                        ref={canvasRef}
+                        className="pointer-events-none absolute inset-0 h-full w-full"
+                    />
 
-            
-        {/*
-            <button onClick={}>Start Rep Counting</button>
-            <button onClick={}>Stop Rep Counting</button>*/}
+                    <div className="absolute left-4 top-4 rounded-lg bg-black/60 px-4 py-2 backdrop-blur-sm">
+                        <p className="text-[10px] uppercase tracking-wider text-zinc-400">Reps</p>
+                        <p className="text-4xl font-bold leading-none tabular-nums text-green-400">
+                            {reps}
+                        </p>
+                    </div>
+                </section>
 
+            {/* Feedback */}
+                <section className="rounded-xl border border-zinc-800 bg-zinc-900 p-5">
+                    <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                        Feedback
+                    </h2>
+                    {isPending && <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-500">Analyzing...</p>}
+                    {!isPending && feedback && (
+                        <p className={feedback ? "text-zinc-100" : "text-zinc-600"}>
+                            {feedback}
+                        </p>
+                    )}
+                </section>
 
-            {/* The container for the video*/}
-            <div className="relative w-full max-w-6xl mt-8">
-                {/* The video element displays webcam feed, and canvas overlays pose landmarks */}
-                <video ref={videoRef} autoPlay playsInline className="w-full"/>
-                <canvas ref={canvasRef} className="absolute top-0 left-0 w-full h-full pointer-events-none" />
-
-                <div className="absolute top-4 left-4 bg-black bg-opacity-50 text-white px-3 py-1 rounded">
-                    Reps: {reps}
-                </div>
-
-            </div>
-
-        </main>
+        </div>
+    </main>
     )
 }
 

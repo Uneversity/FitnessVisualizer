@@ -1,22 +1,44 @@
 import { prisma } from "../../../library/prisma";
+import { auth } from "@clerk/nextjs/server";
 
 export async function POST(request) {
 
-    const body = await request.json();
+    const { userId } = await auth();
+    
+    if (!userId) {
+        return Response.json("Unauthorized", {status: 401});
+    }
+    else if (userId) {
 
-    const workout = await prisma.workout.create({
-        data: {
-            exercise: body.exercise,
-            reps: body.reps,
-        },
-    });
+        const body = await request.json();
+        const workout = await prisma.workout.create({
+            data: {
+                exercise: body.exercise,
+                reps: body.reps,
+                userId
+            },
 
-    return Response.json(workout);
+        });
+
+        return Response.json(workout);
+    }
 }
 
 export async function GET() {
-    const workouts = await prisma.workout.findMany({
+
+    const { userId } = await auth();
+    
+    if (!userId) {
+        return Response.json("Unauthorized", {status: 401});
+    }
+    else if (userId) {
+
+        const workouts = await prisma.workout.findMany({
         orderBy: {createdAt: "asc"},
-    });
-    return Response.json(workouts);
+        where: {userId}
+        });
+
+        return Response.json(workouts);
+    }
+
 }
