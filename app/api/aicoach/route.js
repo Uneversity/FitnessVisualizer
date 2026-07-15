@@ -1,6 +1,5 @@
 export async function POST(request) {
 
-    console.log("KEY:", process.env.GEMINI_API_KEY);
     const { exercise, repHistory } = await request.json();
 
     if (!repHistory || repHistory.length === 0) {
@@ -52,6 +51,7 @@ export async function POST(request) {
         - If the data looks consistent and complete, say so plainly. Do not invent a flaw.
         - Address the lifter directly. No preamble, no headings, no markdown.`;
 
+    //Res = Response status from the Gemini API.
     const res = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
         {
@@ -61,13 +61,22 @@ export async function POST(request) {
         }
     );
 
+    //data which is what the Gemini API returns.
     const data = await res.json();
 
     if (!res.ok || !data.candidates) {
         console.error("Gemini error:", JSON.stringify(data));
-        return Response.json({ notes: "Coaching feedback unavailable." }, { status: 502 });
+        
+        //If error was with res then the AI coach is busy, otherwise the data is not valid. Still regardless log and return error number.
+        const message = res.status === 503
+            ? "The coach is having problems right now — your workout was still saved."
+            : "The coach didn't give a valid response — your workout was still saved.";
+
+        return Response.json({ notes: message }, { status: res.status });
     }
 
     console.log("GEMINI RESPONSE:", JSON.stringify(data, null, 2));
+
     return Response.json({ notes: data.candidates[0].content.parts[0].text });
+    
 }

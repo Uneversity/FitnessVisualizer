@@ -214,6 +214,8 @@ export default function TrackerPage(){
         streamRef.current = stream;
 
         resetSession()
+        setAbleToSave(true);
+        setTryAgain(false);
 
     }
 
@@ -238,7 +240,6 @@ export default function TrackerPage(){
 
     async function stopWebcam() {
 
-        await saveWorkout();
         cancelAnimationFrame(rafRef.current);
         
         if (streamRef.current) {
@@ -266,11 +267,11 @@ export default function TrackerPage(){
 
     }
 
-    const [feedback, setFeedback] = useState("No feedback yet. Start the camera and get to it.");
-    const [isPending, itIsPending] = useState(false);
+    const [feedback, setFeedback] = useState("No feedback yet. Start a new session and get to it.");
+    const [isPending, setIsPending] = useState(false);
+    const [ableToSave, setAbleToSave] = useState(false);
+    const [tryAgain, setTryAgain] = useState(false);
     async function getFeedback() {
-
-        itIsPending(true);
 
         try{
             console.log("Getting feedback");
@@ -282,27 +283,46 @@ export default function TrackerPage(){
                     repHistory: repHistoryRef.current
                 }),
             });
-    
+
+            
             console.log("Feedback received");
             const data = await res.json();
-
-            console.log("data sent");
+            console.log("Sending notes");
             setFeedback(data.notes);
+    
+            if (res.ok) {
+                console.log("Coach Operational");
+                resetSession();
+                setTryAgain(false);
+                setAbleToSave(false);
+            }
+            else{
+                setTryAgain(true);
+                setAbleToSave(true);
+            }
+
         }
         catch(error){
             console.error("Error fetching feedback:", error);
             setFeedback("Error fetching feedback. Please try again later.");
+            setTryAgain(true);
         }
         finally{
-            itIsPending(false);
+            setIsPending(false);
         }
 
     }
 
     async function handleStop() {
+        setIsPending(true);
         await saveWorkout();
         await getFeedback();
         cancelAnimationFrame(rafRef.current);
+    }
+
+    async function retryAnalysis() {
+        setIsPending(true);
+        await getFeedback();   // re-ask the coach ONLY — no save, no camera teardown
     }
 
 
@@ -344,7 +364,7 @@ export default function TrackerPage(){
                 <header className="border-b border-zinc-800 pb-6">
                     <h1 className="text-3xl font-bold tracking-tight text-green-400">Tracker</h1>
                     <p className="mt-1 text-sm text-zinc-400">
-                        Pick an exercise, start the camera, and reps are counted automatically.
+                        Pick an exercise, start a new session, and reps are counted automatically. (Currently only right arm is supported, other limbs in the future)
                     </p>
                 </header>
 
@@ -359,10 +379,13 @@ export default function TrackerPage(){
                                 key={key}
                                 onClick={() => selectExercise(key)}
                                 className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${
+                                    isPending ? "opacity-50 cursor-not-allowed" : "",
                                     selectedExercise === key
                                         ? "bg-green-400 text-zinc-950"
                                         : "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
+                                    
                                 }`}
+                                disabled={isPending}
                             >
                                 {EXERCISES[key].name}
                             </button>
@@ -374,15 +397,24 @@ export default function TrackerPage(){
                 <section className="flex flex-wrap gap-3">
                     <button
                         onClick={launchWebcam}
-                        className="rounded-md bg-green-400 px-5 py-2.5 text-sm font-semibold text-zinc-950 transition-colors hover:bg-green-300"
+                        disabled={isPending}
+                        className={`rounded-md bg-green-400 px-5 py-2.5 text-sm font-semibold text-zinc-950 transition-colors hover:bg-green-300
+                        ${
+                            isPending ? "opacity-50 cursor-not-allowed" : ""
+                        }`}
                     >
-                        Start camera
+                        New session
                     </button>
                     <button
-                        onClick={stopWebcam}
-                        className="rounded-md border border-red-500/40 bg-red-500/10 px-5 py-2.5 text-sm font-semibold text-red-300 transition-colors hover:bg-red-500/20"
+                        onClick={tryAgain ? retryAnalysis : stopWebcam}
+                        disabled={isPending || !ableToSave}
+                        className={`rounded-md border border-red-500/40 bg-red-500/10 px-5 py-2.5 text-sm font-semibold text-red-300 transition-colors hover:bg-red-500/20 
+                        ${
+                            isPending || !ableToSave ? "opacity-50 cursor-not-allowed" : ""
+                        }`}
                     >
-                        Stop and save
+                        {isPending ? "Saving and analyzing…" : tryAgain ? "Try Analysis Again" : "Stop and save"}
+
                     </button>
                 </section>
 

@@ -45,16 +45,22 @@ export default function RootLayout({
 			<body className={`font-arial bg-black text-white`}>
 
 				<nav className="flex items-center justify-between px-8 py-4 border-b border-gray-800">
-				<span className="text-green-400 font-bold text-xl">💪 FitTracker</span>
+
+				<div className= "group relative inline-block inline-flex items-center gap-2">
+					<span className="text-green-400 font-bold text-xl">💪 FitnessTracker</span>
+					<span className="text-gray-400 font-bold text-xs">v1.0.0</span>
+					{/*<span className="top-full hidden white-space-nowrap group-hover:block text-gray-400 font-bold text-xs">v1.0.0</span>*/}
+				</div>
+
 					<div className="flex gap-6">
-						<Link href="/" className="text-gray-400 hover:text-green-400 transition-colors">
+						<Link href="/" className="text-gray-300 hover:text-green-400 transition-colors">
 							Home
 						</Link>
-						<Link href="/tracker" className="text-gray-400 hover:text-green-400 transition-colors">
+						<Link href="/tracker" className="text-gray-300 hover:text-green-400 transition-colors">
 							Tracker
 						</Link>
 						<Show when="signed-in">
-							<Link href="/dashboard" className="text-gray-400 hover:text-green-400 transition-colors">
+							<Link href="/dashboard" className="text-gray-300 hover:text-green-400 transition-colors">
 								Dashboard
 							</Link>
 							<UserButton>
@@ -62,12 +68,12 @@ export default function RootLayout({
 						</Show>
 						<Show when="signed-out">
 							<SignInButton>
-								<button className="text-gray-400 hover:text-green-400 transition-colors">
+								<button className="text-gray-300 hover:text-green-400 transition-colors">
 									Sign In
 								</button>
 							</SignInButton>
 							<SignUpButton>
-								<button className="text-gray-400 hover:text-green-400 transition-colors">
+								<button className="text-gray-300 hover:text-green-400 transition-colors">
 									Sign Up
 								</button>
 							</SignUpButton>
