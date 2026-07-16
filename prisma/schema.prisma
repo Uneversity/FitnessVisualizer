@@ -21,3 +21,12 @@ model Workout {
   userId    String
   createdAt DateTime @default(now())
 }
+
+model CoachUsage {
+  id        Int      @id @default(autoincrement())
+  userId    String
+  day       String
+  count     Int       @default(0)
+
+  @@unique([userId, day])
+}

@@ -325,9 +325,11 @@ export default function TrackerPage(){
         await getFeedback();   // re-ask the coach ONLY — no save, no camera teardown
     }
 
-
     //useEffect allows code to run after the component has rendered.
     useEffect(() => {
+        
+        //fixed some "A tree hydrated but some attributes of the server rendered HTML didn't match the client properties. This won't be patched up. This can happen if a SSR-ed Client Component used:"
+        setAbleToSave(!!navigator.mediaDevices);
         
         initializePoseLandmarker();
 
@@ -364,7 +366,10 @@ export default function TrackerPage(){
                 <header className="border-b border-zinc-800 pb-6">
                     <h1 className="text-3xl font-bold tracking-tight text-green-400">Tracker</h1>
                     <p className="mt-1 text-sm text-zinc-400">
-                        Pick an exercise, start a new session, and reps are counted automatically. (Currently only right arm is supported, other limbs in the future)
+                        Pick an exercise, start a new session, and reps are counted automatically (Currently only right arm is supported, other limbs in the future).
+                    </p>
+                    <p className="mt-1 text-sm text-zinc-400">
+                        Limited amount of anaysis per day.
                     </p>
                 </header>
 

@@ -1,9 +1,37 @@
+import { prisma } from "../../../library/prisma";
+import { auth } from "@clerk/nextjs/server";
+
+const DAILY_LIMIT = 10;
+
 export async function POST(request) {
 
-    const { exercise, repHistory } = await request.json();
+    const { userId } = await auth();
 
+    if (!userId) {
+        return Response.json({ error: "Not signed in" }, { status: 401 });
+    }
+
+    const { exercise, repHistory } = await request.json();
     if (!repHistory || repHistory.length === 0) {
         return Response.json({ notes: "No reps recorded." });
+    }
+
+    // same local-date trick as groupByDay — avoids the UTC bucketing bug
+    const day = new Date().toLocaleDateString("en-CA"); // -> "2026-07-15"
+
+    // atomically bump the counter and read the new value back
+    const usage = await prisma.coachUsage.upsert({
+        where:  { userId_day: { userId, day } },
+        update: { count: { increment: 1 } },
+        create: { userId, day, count: 1 },
+    });
+
+    if (usage.count > DAILY_LIMIT) {
+        return Response.json(
+            { notes: "Sorry but you reached the daily coaching limit, try again in a day or so (Your workout was still saved to the dashboard)." },
+            { error: "Maximun API calls within allowed time period." },
+            { status: 429 }               // 429 = "Too Many Requests"
+        );
     }
 
     // doing arithmetic here since LLMs are bad at it
