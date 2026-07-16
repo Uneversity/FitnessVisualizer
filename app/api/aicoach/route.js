@@ -8,7 +8,7 @@ export async function POST(request) {
     const { userId } = await auth();
 
     if (!userId) {
-        return Response.json({ error: "Not signed in" }, { notes: "Sign in for AI analysis!" }, { status: 401 });
+        return Response.json({ notes: "Sign in for AI analysis!" }, { error: "Not signed in" }, { status: 401 });
     }
 
     const { exercise, repHistory } = await request.json();
