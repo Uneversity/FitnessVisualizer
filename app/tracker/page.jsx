@@ -42,6 +42,8 @@ export default function TrackerPage(){
         }); 
     }
 
+    const lastReportedRef = useRef(0);
+    const frameCountRef = useRef(0);   //amount of frames counted so far this second
     function detectLoop() {
 
         const video = videoRef.current;
@@ -55,8 +57,9 @@ export default function TrackerPage(){
         }
 
         const ctx = canvas.getContext("2d");
-
-         // eslint-disable-next-line react-hooks/purity
+        
+        //This comment below it suppresses the inpurity error caused by perf.now being here
+        // eslint-disable-next-line react-hooks/purity
         const results = landmarker.detectForVideo(video, performance.now());
 
         canvas.width = video.videoWidth;
@@ -81,21 +84,17 @@ export default function TrackerPage(){
             //ctx.font = "48px sans-serif";
             //ctx.fillText(countRef.current.toString(), 30, 60);
 
-            for (const point of landmarks .filter((_, index) => index > 10)) {
+            // the 3 joints this exercise cares about — everything else is "background"
+            const activePoints = new Set([aIndex, bIndex, cIndex]);
+            // a connection is "active" only if it links two of the three, and in the
+            // right order (a→b and b→c, the two segments that form the tracked angle)
+            const isActiveConnection = (start, end) =>
+                (start === aIndex && end === bIndex) ||
+                (start === bIndex && end === aIndex) ||
+                (start === bIndex && end === cIndex) ||
+                (start === cIndex && end === bIndex);
 
-                const px = point.x * canvas.width;
-                const py = point.y * canvas.height;
-                ctx.beginPath();
-                ctx.arc(px, py, 5, 0, 2 * Math.PI);
-                ctx.fillStyle = "lime";
-                ctx.fill();
-
-                // NEW: label it with its index
-                ctx.fillStyle = "yellow";
-                ctx.font = "16px sans-serif";
-                ctx.fillText(landmarks.indexOf(point).toString(), px + 8, py);
-            }
-
+            // --- CONNECTIONS FIRST, so the dots sit on top of the lines ---
             for (const connection of PoseLandmarker.POSE_CONNECTIONS .filter((_, index) => index > 9)) {
 
                 const startLandmark = landmarks[connection.start];
@@ -106,32 +105,58 @@ export default function TrackerPage(){
                 const x2 = endLandmark.x * canvas.width;
                 const y2 = endLandmark.y * canvas.height;
 
+                const active = isActiveConnection(connection.start, connection.end);
+
                 ctx.beginPath();
                 ctx.moveTo(x1, y1);
                 ctx.lineTo(x2, y2);
-                ctx.strokeStyle = "red";
-                ctx.lineWidth = 2;
+                ctx.globalAlpha = active ? 1 : 0.25;   // dim the rest of the skeleton
+                ctx.strokeStyle = active ? "#4ade80" : "white";
+                ctx.lineWidth = active ? 5 : 2;
                 ctx.stroke();
             }
+
+            // --- THEN THE POINTS ---
+            for (const point of landmarks .filter((_, index) => index > 10)) {
+
+                const index = landmarks.indexOf(point);
+                const active = activePoints.has(index);
+
+                const px = point.x * canvas.width;
+                const py = point.y * canvas.height;
+                ctx.beginPath();
+                ctx.arc(px, py, active ? 9 : 5, 0, 2 * Math.PI);
+                ctx.globalAlpha = active ? 1 : 0.25;   // faint dots for the rest
+                ctx.fillStyle = active ? "#4ade80" : "white";
+                ctx.fill();
+
+                // only label the joints that matter, and keep them readable
+                if (active) {
+                    ctx.fillStyle = "yellow";
+                    ctx.font = "16px sans-serif";
+                    ctx.fillText(index.toString(), px + 10, py);
+                }
+            }
+
+            ctx.globalAlpha = 1;   // reset so nothing else on the canvas is affected
         }
 
-        if (results.landmarks && results.landmarks.length > 0) {
-        const landmarks = results.landmarks[0];
+        frameCountRef.current += 1;
 
-        const rShoulder = landmarks[12];
-        const rElbow = landmarks[14];
-        const rWrist = landmarks[16];
+        // eslint-disable-next-line react-hooks/purity
+        const now2 = performance.now();
 
-        const angle = getAngle(rShoulder, rElbow, rWrist);
-
-        countRep(angle);
-
-        //ctx.fillStyle = "white";
-        //ctx.font = "48px sans-serif";
-        //ctx.fillText(countRef.current.toString(), 30, 60);
+        if (lastReportedRef.current === 0) {
+            lastReportedRef.current = now2;                 // first frame: just start the clock
+        } 
+        else if (now2 - lastReportedRef.current >= 1000) {
+            console.log(frameCountRef.current + " fps"); // frames in the last second = fps
+            frameCountRef.current = 0;                    // reset the tally
+            lastReportedRef.current = now2;                  // start a fresh window
         }
 
         rafRef.current = requestAnimationFrame(detectLoop);
+        
     }
 
     function getAngle(a, b, c) {
@@ -149,6 +174,8 @@ export default function TrackerPage(){
 
         return degrees;
     }
+
+    
 
     const repHistoryRef = useRef([]);   // completed reps
     const minAngleRef = useRef(180);  // running min for the CURRENT rep
@@ -239,6 +266,20 @@ export default function TrackerPage(){
     }
 
     async function stopWebcam() {
+        cancelAnimationFrame(rafRef.current);
+
+        if (streamRef.current) {
+            // Stop all tracks of the webcam stream to turn off the webcam.
+            streamRef.current.getTracks().forEach(track => track.stop());
+        }
+        if (videoRef.current) {
+            videoRef.current.srcObject = null;
+        }
+
+        await handleStop()
+    }
+
+    async function stopWebcam2() {
 
         cancelAnimationFrame(rafRef.current);
         
@@ -252,7 +293,10 @@ export default function TrackerPage(){
             videoRef.current.srcObject = null;
         }
 
-        await handleStop()
+        setIsPending(false);
+        setTryAgain(false);
+        setAbleToSave(false);
+        resetSession()
 
     }
 
@@ -413,12 +457,23 @@ export default function TrackerPage(){
                     <button
                         onClick={tryAgain ? retryAnalysis : stopWebcam}
                         disabled={isPending || !ableToSave}
+                        className={`rounded-md border border-green-500/40 bg-green-500/10 px-5 py-2.5 text-sm font-semibold text-green-300 transition-colors hover:bg-green-500/20 
+                        ${
+                            isPending || !ableToSave ? "opacity-50 cursor-not-allowed" : ""
+                        }`}
+                    >
+                        {isPending ? "Saving and analyzing…" : tryAgain ? "Try Analysis Again" : "Save and analyze"}
+
+                    </button>
+                    <button
+                        onClick={stopWebcam2}
+                        disabled={isPending || !ableToSave}
                         className={`rounded-md border border-red-500/40 bg-red-500/10 px-5 py-2.5 text-sm font-semibold text-red-300 transition-colors hover:bg-red-500/20 
                         ${
                             isPending || !ableToSave ? "opacity-50 cursor-not-allowed" : ""
                         }`}
                     >
-                        {isPending ? "Saving and analyzing…" : tryAgain ? "Try Analysis Again" : "Stop and save"}
+                        {"Stop and Reset"}
 
                     </button>
                 </section>
